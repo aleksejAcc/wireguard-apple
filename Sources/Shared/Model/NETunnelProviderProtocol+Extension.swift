@@ -22,9 +22,17 @@ extension NETunnelProviderProtocol {
         if passwordReference == nil {
             return nil
         }
+
+        var newProviderConfiguration = providerConfiguration ?? [:]
+        if !tunnelConfiguration.appIds.isEmpty {
+            newProviderConfiguration["AppIds"] = tunnelConfiguration.appIds
+        }
+
         #if os(macOS)
-        providerConfiguration = ["UID": getuid()]
+        newProviderConfiguration["UID"] = getuid()
         #endif
+
+        self.providerConfiguration = newProviderConfiguration.isEmpty ? nil : newProviderConfiguration
 
         let endpoints = tunnelConfiguration.peers.compactMap { $0.endpoint }
         if endpoints.count == 1 {
@@ -39,10 +47,18 @@ extension NETunnelProviderProtocol {
     func asTunnelConfiguration(called name: String? = nil) -> TunnelConfiguration? {
         if let passwordReference = passwordReference,
             let config = Keychain.openReference(called: passwordReference) {
-            return try? TunnelConfiguration(fromWgQuickConfig: config, called: name)
+            let tunnelConfiguration = try? TunnelConfiguration(fromWgQuickConfig: config, called: name)
+            if let appIds = providerConfiguration?["AppIds"] as? [String] {
+                tunnelConfiguration?.appIds = appIds
+            }
+            return tunnelConfiguration
         }
         if let oldConfig = providerConfiguration?["WgQuickConfig"] as? String {
-            return try? TunnelConfiguration(fromWgQuickConfig: oldConfig, called: name)
+            let tunnelConfiguration = try? TunnelConfiguration(fromWgQuickConfig: oldConfig, called: name)
+            if let appIds = providerConfiguration?["AppIds"] as? [String] {
+                tunnelConfiguration?.appIds = appIds
+            }
+            return tunnelConfiguration
         }
         return nil
     }
@@ -59,6 +75,7 @@ extension NETunnelProviderProtocol {
 
     @discardableResult
     func migrateConfigurationIfNeeded(called name: String) -> Bool {
+        let savedAppIds = providerConfiguration?["AppIds"] as? [String]
         /* This is how we did things before we switched to putting items
          * in the keychain. But it's still useful to keep the migration
          * around so that .mobileconfig files are easier.
@@ -71,6 +88,10 @@ extension NETunnelProviderProtocol {
             #else
             #error("Unimplemented")
             #endif
+            if let appIds = savedAppIds, !appIds.isEmpty {
+                providerConfiguration = providerConfiguration ?? [:]
+                providerConfiguration?["AppIds"] = appIds
+            }
             guard passwordReference == nil else { return true }
             wg_log(.info, message: "Migrating tunnel configuration '\(name)'")
             passwordReference = Keychain.makeReference(containing: oldConfig, called: name)
@@ -79,6 +100,9 @@ extension NETunnelProviderProtocol {
         #if os(macOS)
         if passwordReference != nil && providerConfiguration?["UID"] == nil && verifyConfigurationReference() {
             providerConfiguration = ["UID": getuid()]
+            if let appIds = savedAppIds, !appIds.isEmpty {
+                providerConfiguration?["AppIds"] = appIds
+            }
             return true
         }
         #elseif os(iOS)
