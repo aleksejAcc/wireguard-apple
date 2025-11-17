@@ -732,6 +732,12 @@ extension NETunnelProviderManager {
             return cached
         }
         let config = (protocolConfiguration as? NETunnelProviderProtocol)?.asTunnelConfiguration(called: localizedDescription)
+        if let appRules = appRules {
+            let signingIdentifiers = appRules.compactMap { $0.matchSigningIdentifier }
+            if !signingIdentifiers.isEmpty {
+                config?.appIds = signingIdentifiers
+            }
+        }
         if config != nil {
             objc_setAssociatedObject(self, &NETunnelProviderManager.cachedConfigKey, config, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         }
@@ -741,6 +747,11 @@ extension NETunnelProviderManager {
     func setTunnelConfiguration(_ tunnelConfiguration: TunnelConfiguration) {
         protocolConfiguration = NETunnelProviderProtocol(tunnelConfiguration: tunnelConfiguration, previouslyFrom: protocolConfiguration)
         localizedDescription = tunnelConfiguration.name
+        if tunnelConfiguration.appIds.isEmpty {
+            appRules = nil
+        } else {
+            appRules = tunnelConfiguration.appIds.map { NEAppRule(signingIdentifier: $0, designatedRequirement: nil) }
+        }
         objc_setAssociatedObject(self, &NETunnelProviderManager.cachedConfigKey, tunnelConfiguration, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 
